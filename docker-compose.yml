@@ -1,0 +1,94 @@
+version: '3.8'
+
+services:
+  baileys-backend:
+    image: ghcr.io/seu-usuario/vivassce-baileys-backend:latest
+    
+    environment:
+      # Porta do servidor
+      - PORT=3002
+      
+      # Ambiente
+      - NODE_ENV=${NODE_ENV:-production}
+      
+      # URL Pública (para CORS)
+      - PUBLIC_URL=${PUBLIC_URL:-https://api.stackleys.iconverseagora.com}
+      
+      # Origens permitidas (separadas por vírgula)
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-https://baileys.iconverseagora.com,https://dev.iconverseagora.com}
+      
+      # Caminho do banco (dentro do container)
+      - DB_PATH=/data/baileys.db
+      
+      # Usuário e senha para painel de admin (futuro)
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-changeme}
+      
+      # Configurações opcionais
+      - MAX_RECONNECT_ATTEMPTS=${MAX_RECONNECT_ATTEMPTS:-5}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    
+    volumes:
+      # Persistir banco de dados
+      - baileys-data:/data
+      
+      # Persistir sessões do Baileys
+      - baileys-auth:/app/baileys/auth
+      
+      # Logs (opcional)
+      - baileys-logs:/app/logs
+    
+    networks:
+      - traefik-public
+    
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      labels:
+        # Habilitar Traefik
+        - "traefik.enable=true"
+        
+        # Rede do Traefik
+        - "traefik.docker.network=traefik-public"
+        
+        # HTTP Router
+        - "traefik.http.routers.baileys-backend.rule=Host(`${BACKEND_DOMAIN:-api.stackleys.iconverseagora.com}`)"
+        - "traefik.http.routers.baileys-backend.entrypoints=websecure"
+        - "traefik.http.routers.baileys-backend.tls=true"
+        - "traefik.http.routers.baileys-backend.tls.certresolver=letsencrypt"
+        
+        # Service
+        - "traefik.http.services.baileys-backend.loadbalancer.server.port=3002"
+        
+        # Middlewares (CORS, etc)
+        - "traefik.http.middlewares.baileys-cors.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS"
+        - "traefik.http.middlewares.baileys-cors.headers.accesscontrolalloworiginlist=${ALLOWED_ORIGINS:-https://baileys.iconverseagora.com}"
+        - "traefik.http.middlewares.baileys-cors.headers.accesscontrolallowheaders=Content-Type,Authorization,X-API-Key"
+        - "traefik.http.middlewares.baileys-cors.headers.accesscontrolmaxage=100"
+        - "traefik.http.routers.baileys-backend.middlewares=baileys-cors@docker"
+        
+        # Watchtower
+        - "com.centurylinklabs.watchtower.enable=true"
+    
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3002/api/status', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  baileys-data:
+  baileys-auth:
+  baileys-logs:
+
+networks:
+  traefik-public:
+    external: true
