@@ -394,3 +394,5 @@ Em caso de problemas, verificar:
 ## 📄 Licença
 
 MIT License - Vivassce 2025
+
+<!-- Trigger GitHub Actions workflow -->
