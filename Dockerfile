@@ -1,8 +1,9 @@
 # Usar Node.js 20 (LTS)
 FROM node:20-alpine
 
-# Instalar dependências do sistema necessárias para Baileys
+# Instalar dependências necessárias
 RUN apk add --no-cache \
+    git \
     python3 \
     make \
     g++ \
@@ -15,11 +16,11 @@ RUN apk add --no-cache \
 # Criar diretório da aplicação
 WORKDIR /app
 
-# Copiar package.json e package-lock.json
+# Copiar package.json
 COPY package*.json ./
 
 # Instalar dependências
-RUN npm install --only=production
+RUN npm install --production
 
 # Copiar código da aplicação
 COPY . .
@@ -30,7 +31,7 @@ RUN mkdir -p baileys/auth
 # Expor porta
 EXPOSE 3002
 
-# Variáveis de ambiente (podem ser sobrescritas)
+# Variáveis de ambiente
 ENV PORT=3002
 ENV NODE_ENV=production
 
