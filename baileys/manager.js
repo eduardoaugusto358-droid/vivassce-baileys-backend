@@ -28,6 +28,7 @@ class InstanceManager {
         const instance = new BaileysInstance(
           data.id,
           data.api_key,
+          data.name,      // ✅ ADICIONAR NAME
           proxyConfig
         )
         
@@ -36,7 +37,7 @@ class InstanceManager {
         // Auto-conectar se estava conectado antes
         if (data.status === 'connected' || data.status === 'qr') {
           console.log(`🔄 Auto-conectando: ${data.id}`)
-          await instance.connect()
+          await instance.connect(db)  // ✅ PASSAR DB
         }
       }
       
@@ -57,7 +58,7 @@ class InstanceManager {
       throw new Error('Instância já existe')
     }
     
-    const instance = new BaileysInstance(id, apiKey, proxyConfig)
+    const instance = new BaileysInstance(id, apiKey, name, proxyConfig)  // ✅ PASSAR NAME
     this.instances.set(id, instance)
     
     console.log(`➕ Instância criada: ${id}`)
@@ -137,3 +138,12 @@ class InstanceManager {
 const instanceManager = new InstanceManager()
 
 module.exports = instanceManager
+```
+
+---
+
+## 🚀 **COMMIT NO GITHUB:**
+
+**Commit message:**
+```
+Fix manager.js - pass name and db correctly
