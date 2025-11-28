@@ -138,12 +138,3 @@ class InstanceManager {
 const instanceManager = new InstanceManager()
 
 module.exports = instanceManager
-```
-
----
-
-## 🚀 **COMMIT NO GITHUB:**
-
-**Commit message:**
-```
-Fix manager.js - pass name and db correctly
