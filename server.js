@@ -22,6 +22,7 @@ const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
       'https://dev.iconverseagora.com',
       'https://api-dev.iconverseagora.com',
       'https://baileys.iconverseagora.com',
+      'https://stackleys.iconverseagora.com',
       'https://api.stackleys.iconverseagora.com',
       'http://localhost:5173',
       'http://localhost:3000',
@@ -109,26 +110,6 @@ app.get('/', (req, res) => {
   })
 })
 
-// Rotas da API
-app.use('/api', createRoutes(db))
-
-// Rota 404
-app.use((req, res) => {
-  res.status(404).json({ 
-    error: 'Rota não encontrada',
-    path: req.path
-  })
-})
-
-// Error handler
-app.use((err, req, res, next) => {
-  console.error('Erro não tratado:', err)
-  res.status(500).json({ 
-    error: 'Erro interno do servidor',
-    message: err.message 
-  })
-})
-
 // ============================================
 // INICIALIZAÇÃO
 // ============================================
@@ -151,7 +132,27 @@ async function start() {
   console.log('')
   await instanceManager.loadFromDatabase(db)
   
-  // 4. Iniciar servidor
+  // 4. IMPORTANTE: Registrar rotas DEPOIS de ter o db inicializado
+  app.use('/api', createRoutes(db, instanceManager))
+  
+  // Rota 404
+  app.use((req, res) => {
+    res.status(404).json({ 
+      error: 'Rota não encontrada',
+      path: req.path
+    })
+  })
+
+  // Error handler
+  app.use((err, req, res, next) => {
+    console.error('Erro não tratado:', err)
+    res.status(500).json({ 
+      error: 'Erro interno do servidor',
+      message: err.message 
+    })
+  })
+  
+  // 5. Iniciar servidor
   console.log('')
   app.listen(PORT, () => {
     console.log('✅ Servidor iniciado com sucesso!')
