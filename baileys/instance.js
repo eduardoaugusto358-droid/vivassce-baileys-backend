@@ -1,17 +1,18 @@
 // baileys/instance.js
-const makeWASocket = require('@whiskeysockets/baileys').default
-const { useMultiFileAuthState, DisconnectReason, getAggregateVotesInPollMessage } = require('@whiskeysockets/baileys')
-const { Boom } = require('@hapi/boom')
 const QRCode = require('qrcode')
+const makeWASocket = require('@whiskeysockets/baileys').default
+const { useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys')
+const { Boom } = require('@hapi/boom')
 const { SocksProxyAgent } = require('socks-proxy-agent')
 const { HttpsProxyAgent } = require('https-proxy-agent')
 const path = require('path')
 const pino = require('pino')
 
 class BaileysInstance {
-  constructor(instanceId, apiKey, proxyConfig = null) {
+  constructor(instanceId, apiKey, name, proxyConfig = null) {
     this.instanceId = instanceId
     this.apiKey = apiKey
+    this.name = name
     this.proxyConfig = proxyConfig
     this.sock = null
     this.status = 'disconnected'
@@ -19,7 +20,7 @@ class BaileysInstance {
     this.qrCode = null
     this.authPath = path.join(__dirname, 'auth', instanceId)
     this.reconnectAttempts = 0
-    this.maxReconnectAttempts = 5
+    this.maxReconnectAttempts = parseInt(process.env.MAX_RECONNECT_ATTEMPTS) || 5
   }
 
   /**
@@ -85,11 +86,11 @@ class BaileysInstance {
         return new HttpsProxyAgent(proxyUrl)
       }
       
-      console.warn('Tipo de proxy não suportado:', type)
+      console.warn(`[${this.name}] Tipo de proxy não suportado:`, type)
       return undefined
       
     } catch (error) {
-      console.error('Erro ao criar proxy agent:', error)
+      console.error(`[${this.name}] Erro ao criar proxy agent:`, error)
       return undefined
     }
   }
@@ -97,7 +98,7 @@ class BaileysInstance {
   /**
    * Conecta a instância ao WhatsApp
    */
-  async connect() {
+  async connect(db = null) {
     try {
       const { state, saveCreds } = await useMultiFileAuthState(this.authPath)
       
@@ -109,7 +110,7 @@ class BaileysInstance {
       this.sock = makeWASocket({
         auth: state,
         printQRInTerminal: false,
-        browser: ['Vivassce', 'Chrome', '1.0.0'],
+        browser: ['Vivassce Baileys', 'Chrome', '1.0.0'],
         agent: agent,
         logger: logger,
         markOnlineOnConnect: false
@@ -125,34 +126,49 @@ class BaileysInstance {
         // QR Code gerado
         if (qr) {
           try {
+            // Gerar QR Code em base64 (data URL)
             this.qrCode = await QRCode.toDataURL(qr)
             this.status = 'qr'
-            console.log(`[${this.instanceId}] QR Code gerado`)
+            console.log(`[${this.name}] ✅ QR Code gerado`)
+            
+            // Atualizar no banco
+            if (db) {
+              db.prepare('UPDATE baileys_instances SET status = ? WHERE id = ?')
+                .run('qr', this.instanceId)
+            }
           } catch (error) {
-            console.error(`[${this.instanceId}] Erro ao gerar QR Code:`, error)
+            console.error(`[${this.name}] ❌ Erro ao gerar QR Code:`, error)
+            this.qrCode = qr // Fallback para texto
           }
         }
 
         // Conexão fechada
         if (connection === 'close') {
-          const statusCode = (lastDisconnect?.error)?.output?.statusCode
+          const statusCode = lastDisconnect?.error?.output?.statusCode
           const shouldReconnect = statusCode !== DisconnectReason.loggedOut
 
-          console.log(`[${this.instanceId}] Conexão fechada:`, statusCode)
+          console.log(`[${this.name}] 🔌 Conexão fechada. Status:`, statusCode)
 
           if (shouldReconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
             this.reconnectAttempts++
-            console.log(`[${this.instanceId}] Tentando reconectar (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`)
+            console.log(`[${this.name}] 🔄 Tentando reconectar (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`)
             
             setTimeout(() => {
-              this.connect()
+              this.connect(db)
             }, 5000)
           } else {
             this.status = 'disconnected'
+            this.qrCode = null
             this.reconnectAttempts = 0
             
+            // Atualizar no banco
+            if (db) {
+              db.prepare('UPDATE baileys_instances SET status = ?, phone = NULL WHERE id = ?')
+                .run('disconnected', this.instanceId)
+            }
+            
             if (statusCode === DisconnectReason.loggedOut) {
-              console.log(`[${this.instanceId}] Deslogado - necessário novo QR Code`)
+              console.log(`[${this.name}] 🚪 Deslogado - necessário novo QR Code`)
             }
           }
         }
@@ -161,21 +177,35 @@ class BaileysInstance {
         if (connection === 'open') {
           this.status = 'connected'
           this.phone = this.sock.user?.id.split(':')[0]
+          this.qrCode = null
           this.reconnectAttempts = 0
           
-          console.log(`✅ [${this.instanceId}] Conectado: +${this.phone}`)
+          console.log(`✅ [${this.name}] Conectado: +${this.phone}`)
+          
+          // Atualizar no banco
+          if (db) {
+            db.prepare('UPDATE baileys_instances SET status = ?, phone = ? WHERE id = ?')
+              .run('connected', this.phone, this.instanceId)
+          }
           
           // Log do proxy usado
           if (this.proxyConfig?.enabled) {
-            console.log(`🔒 [${this.instanceId}] Usando proxy ${this.proxyConfig.type}: ${this.proxyConfig.host}:${this.proxyConfig.port}`)
+            console.log(`🔒 [${this.name}] Usando proxy ${this.proxyConfig.type}: ${this.proxyConfig.host}:${this.proxyConfig.port}`)
           }
         }
       })
 
       return true
     } catch (error) {
-      console.error(`[${this.instanceId}] Erro ao conectar:`, error)
+      console.error(`[${this.name}] ❌ Erro ao conectar:`, error)
       this.status = 'error'
+      
+      // Atualizar no banco
+      if (db) {
+        db.prepare('UPDATE baileys_instances SET status = ? WHERE id = ?')
+          .run('error', this.instanceId)
+      }
+      
       return false
     }
   }
@@ -308,7 +338,7 @@ class BaileysInstance {
       participants: g.participants.length,
       description: g.desc || '',
       createdAt: g.creation,
-      isAdmin: g.participants.some(p => p.id === this.sock.user.id && p.admin)
+      isAdmin: g.participants.some(p => p.id === this.sock.user.id && (p.admin === 'admin' || p.admin === 'superadmin'))
     }))
   }
 
@@ -325,7 +355,13 @@ class BaileysInstance {
       'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'zip': 'application/zip',
       'rar': 'application/x-rar-compressed',
-      'txt': 'text/plain'
+      'txt': 'text/plain',
+      'jpg': 'image/jpeg',
+      'jpeg': 'image/jpeg',
+      'png': 'image/png',
+      'gif': 'image/gif',
+      'mp4': 'video/mp4',
+      'mp3': 'audio/mpeg'
     }
     return mimeTypes[ext] || 'application/octet-stream'
   }
@@ -338,7 +374,8 @@ class BaileysInstance {
       this.sock.end()
       this.sock = null
       this.status = 'disconnected'
-      console.log(`[${this.instanceId}] Desconectado`)
+      this.qrCode = null
+      console.log(`[${this.name}] Desconectado`)
     }
   }
 
@@ -348,6 +385,7 @@ class BaileysInstance {
   getInfo() {
     return {
       instanceId: this.instanceId,
+      name: this.name,
       phone: this.phone,
       status: this.status,
       qrCode: this.qrCode,
