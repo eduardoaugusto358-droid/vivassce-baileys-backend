@@ -1,9 +1,8 @@
 // baileys/routes.js
 const express = require('express')
 const { v4: uuidv4 } = require('uuid')
-const instanceManager = require('./manager')
 
-function createRoutes(db) {
+function createRoutes(db, instanceManager) {
   const router = express.Router()
 
   // ============================================
